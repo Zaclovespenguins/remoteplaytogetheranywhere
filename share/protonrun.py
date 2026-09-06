@@ -8,8 +8,10 @@ older 'sniper' container while Proton - Experimental requires the newer
 hardcoded).
 
 This reproduces the exact invocation Steam itself uses internally:
-    <runtime>/_v2-entry-point --verb=waitforexitandrun -- <proton>/proton \\
-        waitforexitandrun <exe> [args]
+    <runtime>/_v2-entry-point --verb=run -- <proton>/proton run <exe> [args]
+
+(verb=run, not waitforexitandrun -- the latter deadlocks waiting on
+wineserver when invoked outside Steam's own session tracking.)
 """
 import os
 import re
@@ -18,6 +20,17 @@ import steamutil
 
 COMPAT_TOOLS_DIR = os.path.join(steamutil.STEAM_ROOT, "compatibilitytools.d")
 COMMON_DIR = os.path.join(steamutil.STEAM_ROOT, "steamapps", "common")
+
+
+class RequiredRuntimeMissing(Exception):
+    """Raised when a Proton build declares a required Steam Linux Runtime
+    container that isn't actually installed -- distinct from a build that
+    doesn't require one at all, since silently falling back to a bare
+    Proton invocation in that case tends to fail in confusing ways."""
+
+    def __init__(self, runtime_appid):
+        self.runtime_appid = runtime_appid
+        super().__init__(f"required Steam Linux Runtime container (appid {runtime_appid}) not installed")
 
 
 def list_proton_installations():
@@ -48,7 +61,11 @@ def find_proton_dir(name):
 
 def find_required_runtime_dir(proton_dir):
     """Returns the Steam Linux Runtime container's install path this Proton
-    build requires, or None if it doesn't declare one (very old Proton)."""
+    build requires, or None if it doesn't declare one at all (very old
+    Proton). Raises RequiredRuntimeMissing if one IS declared but isn't
+    installed -- that's a distinct, much more common failure than "doesn't
+    need one", and silently treating it the same way leads to a confusing
+    launch failure instead of a clear error."""
     manifest_path = os.path.join(proton_dir, "toolmanifest.vdf")
     if not os.path.exists(manifest_path):
         return None
@@ -60,7 +77,8 @@ def find_required_runtime_dir(proton_dir):
     m = re.search(r'"require_tool_appid"\s*"(\d+)"', text)
     if not m:
         return None
-    info = steamutil.read_appmanifest(m.group(1))
+    runtime_appid = m.group(1)
+    info = steamutil.read_appmanifest(runtime_appid)
     if info is None or not os.path.isdir(info["path"]):
-        return None
+        raise RequiredRuntimeMissing(runtime_appid)
     return info["path"]

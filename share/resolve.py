@@ -43,7 +43,14 @@ proton_dir = protonrun.find_proton_dir(game["proton"])
 if proton_dir is None:
     fail(f"Proton build '{game['proton']}' not found (not under compatibilitytools.d or steamapps/common)")
 
-runtime_dir = protonrun.find_required_runtime_dir(proton_dir)
+try:
+    runtime_dir = protonrun.find_required_runtime_dir(proton_dir)
+except protonrun.RequiredRuntimeMissing as e:
+    fail(
+        f"{game['proton']} requires Steam Linux Runtime appid {e.runtime_appid}, which isn't installed. "
+        f"Launch any game using this Proton build through Steam directly once to let it auto-install, "
+        f"or pick a different Proton build for '{active_name}'."
+    )
 
 for key in ("appid", "exe", "proton"):
     print(f"export RPT_{key.upper()}={shlex.quote(str(game[key]))}")
