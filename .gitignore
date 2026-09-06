@@ -1,2 +1,4 @@
 /RemotePlayDetached/
 .claude/
+__pycache__/
+*.pyc

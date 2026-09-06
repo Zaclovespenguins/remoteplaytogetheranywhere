@@ -13,38 +13,32 @@ STATE_DEST="$HOME/.local/state/rpt-anywhere"
 echo "==> Installing rpt-anywhere from $SCRIPT_DIR"
 
 # --- Dependency checks -------------------------------------------------
+#
+# No third-party launcher required: Proton games are run directly through
+# whatever Proton build and Steam Linux Runtime container Steam itself
+# already installed. This also means no extra dependency is needed on
+# SteamOS's read-only root -- everything used here (python3, Steam's own
+# Proton/runtime) is already present on any Steam install.
 
-missing_required=()
-missing_optional=()
-
-command -v umu-run >/dev/null 2>&1 || missing_required+=("umu-launcher")
-command -v python3 >/dev/null 2>&1 || missing_required+=("python")
-python3 -c "import vdf" >/dev/null 2>&1 || missing_optional+=("python-vdf")
-
-install_pacman_pkgs() {
-	local pkgs=("$@")
-	if ! command -v pacman >/dev/null 2>&1; then
-		echo "    pacman not found -- install manually: ${pkgs[*]}"
-		return
-	fi
-	read -r -p "    Install ${pkgs[*]} via pacman now? [y/N] " reply
-	if [[ "$reply" =~ ^[Yy]$ ]]; then
-		sudo pacman -S --needed "${pkgs[@]}"
-	else
-		echo "    Skipped. Install later with: sudo pacman -S ${pkgs[*]}"
-	fi
-}
-
-if [ ${#missing_required[@]} -gt 0 ]; then
-	echo "==> Missing required dependencies: ${missing_required[*]}"
-	install_pacman_pkgs "${missing_required[@]}"
+if ! command -v python3 >/dev/null 2>&1; then
+	echo "==> FATAL: python3 not found. It should already be installed alongside Steam."
+	exit 1
 fi
 
-if [ ${#missing_optional[@]} -gt 0 ]; then
-	echo "==> Missing optional dependency: ${missing_optional[*]}"
-	echo "    (only used for the local co-op / split-screen filter in the TUI;"
-	echo "    everything else works fine without it)"
-	install_pacman_pkgs "${missing_optional[@]}"
+if ! python3 -c "import vdf" >/dev/null 2>&1; then
+	echo "==> Optional: the 'vdf' python package isn't installed."
+	echo "    (only used for the local co-op / split-screen filter in the TUI's"
+	echo "    game-scan flow; everything else works fine without it)"
+	if command -v pip3 >/dev/null 2>&1; then
+		read -r -p "    Install it now with 'pip3 install --user vdf'? [y/N] " reply
+		if [[ "$reply" =~ ^[Yy]$ ]]; then
+			pip3 install --user vdf
+		else
+			echo "    Skipped. Install later with: pip3 install --user vdf"
+		fi
+	else
+		echo "    pip3 not found -- install later with: pip3 install --user vdf"
+	fi
 fi
 
 # --- Deploy files --------------------------------------------------------
@@ -57,6 +51,8 @@ install -m 644 "$SCRIPT_DIR/share/resolve.py" "$SHARE_DEST/resolve.py"
 install -m 644 "$SCRIPT_DIR/share/registry.py" "$SHARE_DEST/registry.py"
 install -m 644 "$SCRIPT_DIR/share/tui.py" "$SHARE_DEST/tui.py"
 install -m 644 "$SCRIPT_DIR/share/appinfo.py" "$SHARE_DEST/appinfo.py"
+install -m 644 "$SCRIPT_DIR/share/steamutil.py" "$SHARE_DEST/steamutil.py"
+install -m 644 "$SCRIPT_DIR/share/protonrun.py" "$SHARE_DEST/protonrun.py"
 
 # Never overwrite an existing registry/selection on upgrade.
 if [ ! -f "$SHARE_DEST/games.json" ]; then

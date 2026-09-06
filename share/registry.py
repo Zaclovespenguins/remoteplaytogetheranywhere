@@ -39,7 +39,7 @@ def cmd_add(args):
         print("usage: registry.py add <name> <appid> <exe> [proton] [args]", file=sys.stderr)
         sys.exit(1)
     name, appid, exe = args[0], args[1], args[2]
-    proton = args[3] if len(args) > 3 else "GE-Proton10-34"
+    proton = args[3] if len(args) > 3 else ""
     extra_args = args[4] if len(args) > 4 else ""
     if not os.path.isfile(exe):
         print(f"warning: exe does not exist (yet): {exe}", file=sys.stderr)

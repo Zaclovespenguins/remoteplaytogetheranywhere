@@ -9,9 +9,15 @@
 # Because this process is a direct child of the process Steam itself spawned
 # for the donor's launch, it inherits Steam's overlay-injection environment
 # (LD_PRELOAD, VK_LAYER_PATH / ENABLE_VK_LAYER_VALVE_steam_overlay_*, etc.).
-# Those env vars pass down unmodified through exec/umu-run/Proton/Wine, so
-# the Steam overlay (and therefore Remote Play Together, which streams the
+# Those env vars pass down unmodified through exec/Proton/Wine, so the Steam
+# overlay (and therefore Remote Play Together, which streams the
 # overlay-captured frame) attaches to the real game's window instead.
+#
+# Proton games are launched directly through Steam's own already-installed
+# Proton build and Steam Linux Runtime container (the same "<runtime>/
+# _v2-entry-point --verb=waitforexitandrun -- <proton>/proton
+# waitforexitandrun <exe>" invocation Steam itself uses) -- no third-party
+# launcher or extra dependency required.
 
 set -uo pipefail
 
@@ -65,36 +71,36 @@ RESOLVED=$(python3 "$RESOLVER" "$REGISTRY" "$ACTIVE_NAME") || {
 }
 eval "$RESOLVED"
 
-if ! command -v umu-run >/dev/null; then
-	echo "FATAL: umu-run not found on PATH"
+if [ ! -f "$RPT_EXE" ]; then
+	echo "FATAL: executable not found: $RPT_EXE"
 	exit 1
 fi
 
-if [ ! -f "$RPT_EXE" ]; then
-	echo "FATAL: executable not found: $RPT_EXE"
+if [ ! -x "$RPT_PROTON_BIN" ]; then
+	echo "FATAL: Proton binary not found or not executable: $RPT_PROTON_BIN"
 	exit 1
 fi
 
 echo "Launching: $RPT_NAME (appid=$RPT_APPID) -> $RPT_EXE via $RPT_PROTON"
 
 GAME_DIR=$(dirname -- "$RPT_EXE")
-PREFIX="$COMPATDATA_ROOT/$RPT_APPID/pfx"
 
 cd -- "$GAME_DIR" || { echo "FATAL: could not cd into $GAME_DIR"; exit 1; }
 
-export WINEPREFIX="$PREFIX"
-export GAMEID="umu-$RPT_APPID"
-export PROTONPATH="$RPT_PROTON"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$COMPAT_CLIENT_INSTALL"
 export STEAM_COMPAT_DATA_PATH="$COMPATDATA_ROOT/$RPT_APPID"
 
-echo "env: WINEPREFIX=$WINEPREFIX GAMEID=$GAMEID PROTONPATH=$PROTONPATH"
+echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
 echo "LD_PRELOAD passthrough: ${LD_PRELOAD:-<unset>}"
 
-if [ -n "$RPT_ARGS" ]; then
-	# Word-split intentionally: RPT_ARGS is a space-separated launch-args string.
-	# shellcheck disable=SC2086
-	exec umu-run "$RPT_EXE" $RPT_ARGS
+# shellcheck disable=SC2086
+# (Word-split intentional: RPT_ARGS is a space-separated launch-args string.)
+if [ -n "$RPT_RUNTIME_ENTRY" ]; then
+	if [ ! -x "$RPT_RUNTIME_ENTRY" ]; then
+		echo "FATAL: required Steam Linux Runtime entry point not found or not executable: $RPT_RUNTIME_ENTRY"
+		exit 1
+	fi
+	exec "$RPT_RUNTIME_ENTRY" --verb=run -- "$RPT_PROTON_BIN" run "$RPT_EXE" $RPT_ARGS
 else
-	exec umu-run "$RPT_EXE"
+	exec "$RPT_PROTON_BIN" run "$RPT_EXE" $RPT_ARGS
 fi

@@ -6,7 +6,6 @@ paths by hand), and remove entries -- all without hand-editing games.json.
 """
 import curses
 import curses.textpad
-import glob
 import os
 import re
 import sys
@@ -14,13 +13,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import registry  # noqa: E402
 import appinfo  # noqa: E402
+import steamutil  # noqa: E402
+import protonrun  # noqa: E402
 
 SHOW_ALL_SENTINEL = object()
 
 STATE_DIR = os.path.expanduser("~/.local/state/rpt-anywhere")
 ACTIVE_FILE = os.path.join(STATE_DIR, "active")
-STEAM_ROOT = os.path.expanduser("~/.local/share/Steam")
-COMPAT_TOOLS_DIR = os.path.join(STEAM_ROOT, "compatibilitytools.d")
 
 EXE_IGNORE_PATTERNS = re.compile(
     r"(uninstall|unins0\d*|vc_?redist|dxsetup|dxwebsetup|directx|"
@@ -44,24 +43,8 @@ def set_active(name):
 
 
 def scan_steam_apps():
-    """Return [(appid, name, installdir_path), ...] from appmanifest_*.acf files."""
-    apps = []
-    for path in glob.glob(os.path.join(STEAM_ROOT, "steamapps", "appmanifest_*.acf")):
-        try:
-            with open(path, errors="ignore") as f:
-                text = f.read()
-        except OSError:
-            continue
-        m_id = re.search(r'"appid"\s*"(\d+)"', text)
-        m_name = re.search(r'"name"\s*"([^"]*)"', text)
-        m_dir = re.search(r'"installdir"\s*"([^"]*)"', text)
-        if not (m_id and m_name and m_dir):
-            continue
-        install_path = os.path.join(STEAM_ROOT, "steamapps", "common", m_dir.group(1))
-        if os.path.isdir(install_path):
-            apps.append((m_id.group(1), m_name.group(1), install_path))
-    apps.sort(key=lambda a: a[1].lower())
-    return apps
+    """Return [(appid, name, installdir_path), ...] for every installed app."""
+    return steamutil.scan_installed_apps()
 
 
 def find_candidate_exes(install_path):
@@ -76,15 +59,10 @@ def find_candidate_exes(install_path):
 
 
 def list_proton_versions():
-    versions = []
-    if os.path.isdir(COMPAT_TOOLS_DIR):
-        for entry in sorted(os.listdir(COMPAT_TOOLS_DIR)):
-            if os.path.isdir(os.path.join(COMPAT_TOOLS_DIR, entry)):
-                versions.append(entry)
-    for codename in ("GE-Proton", "UMU-Proton (default)"):
-        if codename not in versions:
-            versions.append(codename)
-    return versions
+    """Only real, installed Proton builds -- each one is resolved again at
+    launch time (proton binary + required runtime container), so listing a
+    build that doesn't actually exist would just fail later at launch."""
+    return [name for name, _path in protonrun.list_proton_installations()]
 
 
 class TUI:
