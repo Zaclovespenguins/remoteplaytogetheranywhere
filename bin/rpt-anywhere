@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# rpt-anywhere: launched in place of a "donor" Steam game (via that game's
+# Steam Launch Options, set to "/path/to/rpt-anywhere %command%"). Steam
+# still believes the donor's AppID is running -- and therefore still offers
+# Remote Play Together for it -- while this script actually execs whichever
+# real game is currently selected via `rpt-select`. The donor's own %command%
+# (passed to us as argv) is intentionally ignored.
+#
+# Because this process is a direct child of the process Steam itself spawned
+# for the donor's launch, it inherits Steam's overlay-injection environment
+# (LD_PRELOAD, VK_LAYER_PATH / ENABLE_VK_LAYER_VALVE_steam_overlay_*, etc.).
+# Those env vars pass down unmodified through exec/umu-run/Proton/Wine, so
+# the Steam overlay (and therefore Remote Play Together, which streams the
+# overlay-captured frame) attaches to the real game's window instead.
+
+set -uo pipefail
+
+SHARE_DIR="$HOME/.local/share/rpt-anywhere"
+REGISTRY="$SHARE_DIR/games.json"
+RESOLVER="$SHARE_DIR/resolve.py"
+STATE_DIR="$HOME/.local/state/rpt-anywhere"
+ACTIVE_FILE="$STATE_DIR/active"
+LOG="$STATE_DIR/rpt-anywhere.log"
+LOCK_FILE="$STATE_DIR/rpt-anywhere.lock"
+COMPATDATA_ROOT="$HOME/.local/share/Steam/steamapps/compatdata"
+COMPAT_CLIENT_INSTALL="$HOME/.local/share/Steam"
+MAX_LOG_BYTES=$((2 * 1024 * 1024))
+
+mkdir -p "$STATE_DIR"
+
+# Keep at most one previous session's log instead of growing forever.
+if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt "$MAX_LOG_BYTES" ]; then
+	mv -f "$LOG" "$LOG.previous"
+fi
+
+exec >>"$LOG" 2>&1
+echo "===== $(date -Is) rpt-anywhere starting (donor argv ignored: $* ) ====="
+
+# Refuse to stack two launches on top of each other (e.g. double-clicking Play).
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+	echo "FATAL: another rpt-anywhere is already running (lock held on $LOCK_FILE)"
+	exit 1
+fi
+
+if [ ! -f "$ACTIVE_FILE" ]; then
+	echo "FATAL: no active game selected. Run: rpt-select <name>"
+	exit 1
+fi
+ACTIVE_NAME=$(<"$ACTIVE_FILE")
+
+if [ ! -f "$REGISTRY" ]; then
+	echo "FATAL: no registry at $REGISTRY"
+	exit 1
+fi
+
+if ! command -v python3 >/dev/null; then
+	echo "FATAL: python3 not found on PATH"
+	exit 1
+fi
+
+RESOLVED=$(python3 "$RESOLVER" "$REGISTRY" "$ACTIVE_NAME") || {
+	echo "FATAL: resolve.py itself failed unexpectedly"
+	exit 1
+}
+eval "$RESOLVED"
+
+if ! command -v umu-run >/dev/null; then
+	echo "FATAL: umu-run not found on PATH"
+	exit 1
+fi
+
+if [ ! -f "$RPT_EXE" ]; then
+	echo "FATAL: executable not found: $RPT_EXE"
+	exit 1
+fi
+
+echo "Launching: $RPT_NAME (appid=$RPT_APPID) -> $RPT_EXE via $RPT_PROTON"
+
+GAME_DIR=$(dirname -- "$RPT_EXE")
+PREFIX="$COMPATDATA_ROOT/$RPT_APPID/pfx"
+
+cd -- "$GAME_DIR" || { echo "FATAL: could not cd into $GAME_DIR"; exit 1; }
+
+export WINEPREFIX="$PREFIX"
+export GAMEID="umu-$RPT_APPID"
+export PROTONPATH="$RPT_PROTON"
+export STEAM_COMPAT_CLIENT_INSTALL_PATH="$COMPAT_CLIENT_INSTALL"
+export STEAM_COMPAT_DATA_PATH="$COMPATDATA_ROOT/$RPT_APPID"
+
+echo "env: WINEPREFIX=$WINEPREFIX GAMEID=$GAMEID PROTONPATH=$PROTONPATH"
+echo "LD_PRELOAD passthrough: ${LD_PRELOAD:-<unset>}"
+
+if [ -n "$RPT_ARGS" ]; then
+	# Word-split intentionally: RPT_ARGS is a space-separated launch-args string.
+	# shellcheck disable=SC2086
+	exec umu-run "$RPT_EXE" $RPT_ARGS
+else
+	exec umu-run "$RPT_EXE"
+fi

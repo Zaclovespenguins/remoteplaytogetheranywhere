@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# rpt-select: choose which game rpt-anywhere should launch next, and manage
+# the registry of configured games.
+set -euo pipefail
+
+REGISTRY_PY="$HOME/.local/share/rpt-anywhere/registry.py"
+TUI_PY="$HOME/.local/share/rpt-anywhere/tui.py"
+STATE_DIR="$HOME/.local/state/rpt-anywhere"
+ACTIVE_FILE="$STATE_DIR/active"
+
+mkdir -p "$STATE_DIR"
+
+usage() {
+	cat <<'EOF'
+Usage:
+  rpt-select                                     Launch the interactive TUI
+  rpt-select list                                List configured games
+  rpt-select current                             Show the active game
+  rpt-select add <name> <appid> <exe> [proton] [args]
+                                                  Add/update a game in the registry
+  rpt-select remove <name>                       Remove a game from the registry
+  rpt-select <name>                              Set the active game by name
+EOF
+	exit 1
+}
+
+[ -f "$REGISTRY_PY" ] || { echo "Missing $REGISTRY_PY" >&2; exit 1; }
+
+if [ $# -eq 0 ]; then
+	if [ -f "$TUI_PY" ] && [ -t 0 ] && [ -t 1 ]; then
+		exec python3 "$TUI_PY"
+	fi
+	usage
+fi
+
+case "${1:-}" in
+	list)
+		python3 "$REGISTRY_PY" list
+		;;
+	current)
+		if [ -f "$ACTIVE_FILE" ]; then
+			cat "$ACTIVE_FILE"
+		else
+			echo "(none selected)"
+		fi
+		;;
+	add)
+		shift
+		python3 "$REGISTRY_PY" add "$@"
+		;;
+	remove)
+		shift
+		python3 "$REGISTRY_PY" remove "$@"
+		;;
+	"")
+		usage
+		;;
+	*)
+		NAME="$1"
+		FOUND=$(python3 "$REGISTRY_PY" has "$NAME")
+		if [ "$FOUND" != "yes" ]; then
+			echo "Not found in registry: $NAME" >&2
+			echo "Known games:" >&2
+			python3 "$REGISTRY_PY" list | sed 's/^/ - /' >&2
+			exit 1
+		fi
+		printf '%s' "$NAME" > "$ACTIVE_FILE"
+		echo "Active game set to: $NAME"
+		;;
+esac
