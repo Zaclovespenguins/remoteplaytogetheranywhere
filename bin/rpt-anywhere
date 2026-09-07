@@ -39,6 +39,15 @@ if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt "$MAX_LOG
 	mv -f "$LOG" "$LOG.previous"
 fi
 
+# Save Steam's original stdout/stderr (fd 3/4) before redirecting our own
+# diagnostic output to the log file. Steam appears to use the donor
+# process's original stdout/stderr for its own session bookkeeping -- e.g.
+# Remote Play invites were observed only actually being sent when Steam
+# itself shut down, rather than promptly, when this script's stdout/stderr
+# redirection was inherited all the way down into the actual game process.
+# Restored before the final exec below so the real game inherits Steam's
+# original fds, not this script's log file.
+exec 3>&1 4>&2
 exec >>"$LOG" 2>&1
 echo "===== $(date -Is) rpt-anywhere starting (donor argv ignored: $* ) ====="
 
@@ -93,13 +102,21 @@ export STEAM_COMPAT_DATA_PATH="$COMPATDATA_ROOT/$RPT_APPID"
 echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
 echo "LD_PRELOAD passthrough: ${LD_PRELOAD:-<unset>}"
 
+if [ -n "$RPT_RUNTIME_ENTRY" ] && [ ! -x "$RPT_RUNTIME_ENTRY" ]; then
+	echo "FATAL: required Steam Linux Runtime entry point not found or not executable: $RPT_RUNTIME_ENTRY"
+	exit 1
+fi
+
+echo "Restoring Steam's original stdout/stderr before final exec"
+
+# Restore Steam's original stdout/stderr (saved above) and close our
+# duplicated copies of them, so the actual game process below inherits
+# what Steam originally connected, not this script's log file.
+exec 1>&3 2>&4 3>&- 4>&-
+
 # shellcheck disable=SC2086
 # (Word-split intentional: RPT_ARGS is a space-separated launch-args string.)
 if [ -n "$RPT_RUNTIME_ENTRY" ]; then
-	if [ ! -x "$RPT_RUNTIME_ENTRY" ]; then
-		echo "FATAL: required Steam Linux Runtime entry point not found or not executable: $RPT_RUNTIME_ENTRY"
-		exit 1
-	fi
 	exec "$RPT_RUNTIME_ENTRY" --verb=run -- "$RPT_PROTON_BIN" run "$RPT_EXE" $RPT_ARGS
 else
 	exec "$RPT_PROTON_BIN" run "$RPT_EXE" $RPT_ARGS
