@@ -99,7 +99,19 @@ cd -- "$GAME_DIR" || { echo "FATAL: could not cd into $GAME_DIR"; exit 1; }
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$COMPAT_CLIENT_INSTALL"
 export STEAM_COMPAT_DATA_PATH="$COMPATDATA_ROOT/$RPT_APPID"
 
-echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
+# Proton's own script reads SteamAppId/SteamGameId extensively (compatdata
+# path fallback, shader cache path, per-game fixups/quirks, controller
+# config, ...). Without this, those vars are left as whatever Steam
+# originally set for the DONOR's launch, inconsistent with
+# STEAM_COMPAT_DATA_PATH pointing at the real game's own folder. This is an
+# experimental fix for Remote Play Together's stream-attach step reporting
+# "host busy" -- if it makes things worse (e.g. breaks the invite/overlay
+# working at all), that's useful signal that Steam's RPT-eligibility check
+# reads these per-launch rather than only from the outer donor process tree.
+export SteamAppId="$RPT_APPID"
+export SteamGameId="$RPT_APPID"
+
+echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH SteamAppId=$SteamAppId PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
 echo "LD_PRELOAD passthrough: ${LD_PRELOAD:-<unset>}"
 
 if [ -n "$RPT_RUNTIME_ENTRY" ] && [ ! -x "$RPT_RUNTIME_ENTRY" ]; then
