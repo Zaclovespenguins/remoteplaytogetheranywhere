@@ -99,19 +99,16 @@ cd -- "$GAME_DIR" || { echo "FATAL: could not cd into $GAME_DIR"; exit 1; }
 export STEAM_COMPAT_CLIENT_INSTALL_PATH="$COMPAT_CLIENT_INSTALL"
 export STEAM_COMPAT_DATA_PATH="$COMPATDATA_ROOT/$RPT_APPID"
 
-# Proton's own script reads SteamAppId/SteamGameId extensively (compatdata
-# path fallback, shader cache path, per-game fixups/quirks, controller
-# config, ...). Without this, those vars are left as whatever Steam
-# originally set for the DONOR's launch, inconsistent with
-# STEAM_COMPAT_DATA_PATH pointing at the real game's own folder. This is an
-# experimental fix for Remote Play Together's stream-attach step reporting
-# "host busy" -- if it makes things worse (e.g. breaks the invite/overlay
-# working at all), that's useful signal that Steam's RPT-eligibility check
-# reads these per-launch rather than only from the outer donor process tree.
-export SteamAppId="$RPT_APPID"
-export SteamGameId="$RPT_APPID"
-
-echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH SteamAppId=$SteamAppId PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
+# Deliberately NOT overriding SteamAppId/SteamGameId here (tried in a
+# previous version): setting them to the real game's own appid fixed one
+# Remote Play Together problem ("host busy" on connect) but caused a new
+# one -- Steam then correctly read the real game's own (possibly incomplete
+# or inaccurate) store category metadata to decide how many co-op slots to
+# offer, disabling the invite option entirely for a game that may actually
+# support local co-op in practice. Leaving these unset means they stay as
+# whatever Steam originally set for the DONOR's launch, which is what
+# determines co-op-slot availability for the invite.
+echo "env: STEAM_COMPAT_DATA_PATH=$STEAM_COMPAT_DATA_PATH SteamAppId=${SteamAppId:-<inherited from donor>} PROTON_BIN=$RPT_PROTON_BIN RUNTIME_ENTRY=${RPT_RUNTIME_ENTRY:-<none>}"
 echo "LD_PRELOAD passthrough: ${LD_PRELOAD:-<unset>}"
 
 if [ -n "$RPT_RUNTIME_ENTRY" ] && [ ! -x "$RPT_RUNTIME_ENTRY" ]; then
